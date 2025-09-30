@@ -1,0 +1,607 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Financial Clinic Dashboard — Final</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    :root{
+      --bg:#0b1220; --card:#0e1627;
+      --ink:#dbe7ff; --muted:#9ab0d6;
+      --brand:#22d3ee; --brand2:#8b5cf6;
+      --accent:#10b981; --warn:#f59e0b; --danger:#ef4444;
+    }
+    html,body{height:100%}
+    body{background:var(--bg);color:var(--ink);overflow-y:scroll}
+    .card{background:var(--card);border:1px solid rgba(255,255,255,.06);border-radius:16px}
+    .btn{background:#0e1730;border:1px solid rgba(255,255,255,.12);padding:.55rem .9rem;border-radius:.7rem}
+    .btn:hover{filter:brightness(1.07)}
+    .btn-primary{background:linear-gradient(135deg,var(--brand2),var(--brand));border-color:transparent;color:#0b1220;font-weight:800}
+    .btn-ghost{background:transparent;border-color:rgba(255,255,255,.18)}
+    .btn-contrast{background:#1f2b52;border-color:#3b82f6;color:#ffffff;font-weight:700}
+    .tab{color:var(--muted);padding:.4rem .8rem;border-radius:.6rem}
+    .tab.active{background:#132142;color:#cfe0ff}
+    .kpi{background:#0f1a2e;border:1px solid rgba(255,255,255,.06);border-radius:14px;padding:.8rem .9rem}
+    .kpi .t{color:var(--muted);font-size:.8rem}
+    .kpi .v{font-size:1.2rem;font-weight:800;letter-spacing:.2px}
+    .chart-box{height:300px}
+    .hidden{display:none}
+
+    /* option dropdown ให้อ่านง่าย */
+    select option, select optgroup{ color:#0b1220; background:#ffffff; }
+    select{ color:#dbe7ff; background:transparent; }
+
+    /* แถบรายละเอียดในหน้า Mentors กันจอย่น/ไม่เกิดแถบขาว */
+    .mentor-detail{min-height:620px; overflow-y:auto; background:transparent}
+
+    /* ทำตัวกรองให้ไม่ล้นบรรทัดง่าย */
+    .filter-select{width:9.5rem}
+    @media (min-width: 768px){ .filter-select{width:12rem} }
+  </style>
+</head>
+<body>
+  <div class="max-w-[1280px] mx-auto p-4 md:p-6 space-y-6">
+    <!-- Header -->
+    <header class="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+      <div>
+        <h1 class="text-2xl md:text-3xl font-extrabold">📊 Financial Clinic — Dashboard</h1>
+        <p class="text-sm text-sky-200/70">สูตรคำนวณเหมือน Excel (รวม/เฉลี่ยแบบ row-level) + ฟิลเตอร์สัมพันธ์กัน</p>
+      </div>
+      <div class="flex items-center gap-2">
+        <button id="btnRefresh" class="btn">Refresh</button>
+        <label class="flex items-center gap-2 text-sm"><input id="autoRefresh" type="checkbox"> Auto-refresh (5m)</label>
+      </div>
+    </header>
+
+    <!-- Tabs -->
+    <nav class="flex items-center gap-2">
+      <a href="#overview" class="tab active" data-view="overview">ภาพรวม</a>
+      <a href="#mentors" class="tab" data-view="mentors">Mentors</a>
+    </nav>
+
+    <!-- ===== Global Filters (ใช้ได้ทั้งสองแท็บ) ===== -->
+    <section class="card p-4 md:p-5 space-y-3">
+      <div class="flex flex-wrap items-end gap-x-4 gap-y-2">
+        <div>
+          <label class="block text-xs text-sky-200/80 mb-1">Year</label>
+          <select id="fYear" class="filter-select border border-white/10 rounded-md px-3 py-2"></select>
+        </div>
+        <div>
+          <label class="block text-xs text-sky-200/80 mb-1">Cohort</label>
+          <select id="fCohort" class="filter-select border border-white/10 rounded-md px-3 py-2"></select>
+        </div>
+        <div>
+          <label class="block text-xs text-sky-200/80 mb-1">Mentor</label>
+          <select id="fMentor" class="filter-select border border-white/10 rounded-md px-3 py-2"></select>
+        </div>
+        <div>
+          <label class="block text-xs text-sky-200/80 mb-1">Case</label>
+          <select id="fCase" class="filter-select border border-white/10 rounded-md px-3 py-2"></select>
+        </div>
+        <div class="flex items-center gap-4 ml-auto">
+          <label class="flex items-center gap-2 text-xs md:text-sm whitespace-nowrap">
+            <input id="fOnlyCompleted" type="checkbox" checked> เฉพาะครบ 4 เดือน
+          </label>
+          <label class="flex items-center gap-2 text-xs md:text-sm whitespace-nowrap">
+            <input id="fDeltaFromM1" type="checkbox"> แสดง Δ เทียบ M1
+          </label>
+          <button id="clearFilters" class="btn btn-ghost">เคลียร์ตัวกรอง</button>
+        </div>
+      </div>
+      <div id="lastUpdated" class="text-xs text-sky-200/70">กำลังโหลด…</div>
+    </section>
+
+    <!-- ================= OVERVIEW ================= -->
+    <section id="view-overview" class="space-y-4">
+      <div id="kpiWrap" class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3"></div>
+
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <div class="card p-4">
+          <div class="flex items-center justify-between mb-2">
+            <h3 class="font-semibold">แนวโน้มหนี้รวม</h3>
+            <div class="text-xs text-sky-200/70">*MB = ล้านบาท</div>
+          </div>
+          <div class="chart-box"><canvas id="debtTrend"></canvas></div>
+        </div>
+
+        <div class="card p-4">
+          <h3 class="font-semibold mb-2">ค่าเฉลี่ย DTI</h3>
+          <div class="chart-box"><canvas id="dtiBar"></canvas></div>
+        </div>
+
+        <div class="card p-4">
+          <div class="flex items-center justify-between mb-2">
+            <h3 class="font-semibold">เงินออมรวมต่อเดือน</h3>
+            <div class="text-xs text-sky-200/70">*MB = ล้านบาท</div>
+          </div>
+          <div class="chart-box"><canvas id="savingTrend"></canvas></div>
+        </div>
+
+        <div class="card p-4">
+          <h3 class="font-semibold mb-2">สัดส่วนหนี้ (M4)</h3>
+          <div class="chart-box"><canvas id="ratioDonut"></canvas></div>
+        </div>
+
+        <!-- NEW: ดอกเบี้ยรวม/เดือน แยกในระบบ-นอกระบบ -->
+        <div class="card p-4 lg:col-span-2">
+          <h3 class="font-semibold mb-2">ดอกเบี้ยที่ต้องจ่ายรวมต่อเดือน (แยกในระบบ/นอกระบบ)</h3>
+          <div class="chart-box"><canvas id="interestTrend"></canvas></div>
+        </div>
+      </div>
+
+      <!-- Case Detail (Overview) -->
+      <div id="casePanel" class="card p-4 hidden">
+        <div class="flex items-center justify-between mb-3">
+          <h3 id="caseTitle" class="font-semibold mb-2">สรุปเคส</h3>
+          <button id="closeCase" class="btn btn-ghost">ซ่อน</button>
+        </div>
+        <div id="caseKPIGrid" class="grid grid-cols-2 md:grid-cols-6 gap-3 mb-4"></div>
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+          <div class="card p-4"><h4 class="font-semibold mb-2">DTI 4 เดือน (เคสนี้)</h4><div class="chart-box"><canvas id="caseDTIChart"></canvas></div></div>
+          <div class="card p-4"><h4 class="font-semibold mb-2">หนี้คงเหลือ (M1→M4)</h4><div class="chart-box"><canvas id="caseDebtChart"></canvas></div></div>
+          <div class="card p-4"><h4 class="font-semibold mb-2">เงินออมรวมต่อเดือน (M1→M4)</h4><div class="chart-box"><canvas id="caseSavingChart"></canvas></div></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= MENTORS ================= -->
+    <section id="view-mentors" class="space-y-4 hidden">
+      <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        <!-- list -->
+        <div class="card p-4">
+          <div class="flex items-center gap-2 mb-3">
+            <input id="mentorSearch" class="w-full border border-white/10 rounded-md px-3 py-2 bg-transparent" placeholder="ค้นหา Mentor…">
+          </div>
+          <ul id="mentorList" class="space-y-2 max-h-[520px] overflow-auto"></ul>
+          <div id="mentorEmpty" class="hidden text-center text-sky-200/70 mt-4">ยังไม่มีข้อมูล Mentor/RAW</div>
+        </div>
+
+        <!-- table + detail -->
+        <div class="lg:col-span-2 space-y-4">
+          <div class="card p-4">
+            <div class="flex items-center justify-between mb-2">
+              <h3 id="mentorTitle" class="font-semibold">เลือก Mentor ทางซ้าย</h3>
+              <button id="exportCases" class="btn btn-primary disabled:opacity-40" disabled>Export CSV</button>
+            </div>
+            <div class="overflow-x-auto">
+              <table class="w-full text-left border-collapse">
+                <thead>
+                  <tr class="text-xs md:text-sm text-sky-200">
+                    <th class="p-2">เคส</th>
+                    <th class="p-2">สถานะ</th>
+                    <th class="p-2 text-right">หนี้ลดลง</th>
+                    <th class="p-2 text-right">ออมเพิ่มขึ้น</th>
+                    <th class="p-2 text-right">DTI ลดลง</th>
+                    <th class="p-2 text-right">ดอกเบี้ยประหยัด</th>
+                    <th class="p-2"></th>
+                  </tr>
+                </thead>
+                <tbody id="caseTable" class="divide-y divide-white/10 text-xs md:text-sm"></tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- รายละเอียดเคสภายในแท็บ Mentors -->
+          <div id="mentorCasePanel" class="card p-4 mentor-detail hidden">
+            <div class="flex items-center justify-between mb-3">
+              <h3 id="mentorCaseTitle" class="font-semibold mb-2">สรุปเคส</h3>
+              <button id="closeMentorCase" class="btn btn-ghost">ซ่อน</button>
+            </div>
+            <div id="mentorCaseKPIGrid" class="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3 mb-4"></div>
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+              <div class="card p-4"><h4 class="font-semibold mb-2">DTI 4 เดือน (เคสนี้)</h4><div class="chart-box"><canvas id="mCaseDTI"></canvas></div></div>
+              <div class="card p-4"><h4 class="font-semibold mb-2">หนี้คงเหลือ (M1→M4)</h4><div class="chart-box"><canvas id="mCaseDebt"></canvas></div></div>
+              <div class="card p-4"><h4 class="font-semibold mb-2">เงินออมรวมต่อเดือน (M1→M4)</h4><div class="chart-box"><canvas id="mCaseSaving"></canvas></div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <footer class="text-center text-xs text-sky-200/60 pt-4 pb-8">© Financial Clinic</footer>
+  </div>
+
+  <script>
+    // ================== CONFIG ==================
+    const API_URL = "https://script.google.com/macros/s/AKfycbyvg7jdZBBdtSyIDYH5XjstxhstYY7Tw3f0UpJfn09uHyNzaFJQgqB5k_66A1V7tLFe/exec";
+
+    // ================== STATE ==================
+    let RAW=null, DATA=null, autoTimer=null, CURRENT_MENTOR_KEY="";
+    const CHARTS={};
+
+    // ================== UTIL ==================
+    const $=s=>document.querySelector(s); const $$=s=>[...document.querySelectorAll(s)];
+    const num=v=>(v==null||v==='')?0:Number(v);
+    const fmtBaht=n=>{ const v=Number(n)||0; return Math.abs(v)>=1_000_000 ? (v/1_000_000).toFixed(2)+" MB" : v.toLocaleString()+" ฿"; };
+    const tickMB=v=>{ const n=Number(v); if(!isFinite(n)) return v; return Math.abs(n)>=1_000_000 ? (n/1_000_000).toFixed(1)+"MB" : n.toLocaleString(); };
+    const sumSavings=r=> num(r.save_piggy)+num(r.save_bank)+num(r.save_bond)+num(r.save_mutual)+num(r.save_provident)+num(r.save_stock)+num(r.save_other);
+    const dtiOf=r=>{ const pay=num(r.in_pay_per_month)+num(r.out_pay_per_month); const inc=num(r.income_total); return inc>0?(pay/inc*100):null; };
+    const destroy=id=>{ if(CHARTS[id]){ CHARTS[id].destroy(); delete CHARTS[id]; } };
+    const makeChart=(id,type,data,options={})=>{
+      destroy(id);
+      const ctx=document.getElementById(id); if(!ctx) return;
+      CHARTS[id]=new Chart(ctx,{type,data,options:Object.assign({
+        responsive:true,maintainAspectRatio:false,
+        animation:{duration:600,easing:'easeOutQuart'},
+        plugins:{legend:{labels:{color:'#cfe0ff'}}},
+        scales:{x:{ticks:{color:'#9bb3db'}},y:{ticks:{color:'#9bb3db'}}}
+      },options)});
+    };
+    const opt=(v,t)=>{const o=document.createElement('option');o.value=v;o.textContent=t??v;return o};
+
+    // ================== NAV ==================
+    function initTabs(){
+      const tabs=$$('a.tab');
+      const show=(key)=>{
+        tabs.forEach(t=>t.classList.toggle('active', t.dataset.view===key));
+        ['overview','mentors'].forEach(k=>{
+          const sec=$('#view-'+k); if(!sec) return;
+          if(k===key) sec.classList.remove('hidden'); else sec.classList.add('hidden');
+        });
+        if(key==='mentors') buildMentorsPage();
+      };
+      tabs.forEach(t=>{
+        t.addEventListener('click',e=>{
+          e.preventDefault();
+          const key=t.dataset.view; history.replaceState(null,'','#'+key); show(key);
+        });
+      });
+      show((location.hash||'#overview').replace('#',''));
+    }
+
+    // ================== FETCH ==================
+    async function fetchWithTimeout(url, ms=12000){
+      const ctrl=new AbortController(); const timer=setTimeout(()=>ctrl.abort(),ms);
+      try{ const res=await fetch(url,{cache:'no-store',signal:ctrl.signal}); clearTimeout(timer); if(!res.ok) throw new Error(res.status+" "+res.statusText); return res; }
+      catch(e){ clearTimeout(timer); throw e; }
+    }
+    async function loadAll(){
+      $('#lastUpdated').textContent="กำลังโหลด…";
+      try{
+        const [r1,r2]=await Promise.allSettled([ fetchWithTimeout(API_URL+"?action=raw"), fetchWithTimeout(API_URL) ]);
+        if(r1.status==='fulfilled'){ const jr=await r1.value.json(); RAW=Array.isArray(jr.raw)?jr.raw:(Array.isArray(jr)?jr:null); }
+        if(r2.status==='fulfilled'){ DATA=await r2.value.json(); }
+        $('#lastUpdated').textContent="อัปเดตล่าสุด: "+new Date().toLocaleString('th-TH');
+        buildFilters(true); renderOverview(); buildMentorsPage();
+      }catch(e){ console.error(e); $('#lastUpdated').textContent="โหลดข้อมูลไม่สำเร็จ"; }
+    }
+
+    // ================== FILTERS (CASCADING) ==================
+    function getFilters(){ return {
+      year: $('#fYear').value, cohort: $('#fCohort').value, mentor: $('#fMentor').value, kase: $('#fCase').value,
+      onlyCompleted: $('#fOnlyCompleted').checked, deltaFromM1: $('#fDeltaFromM1').checked
+    };}
+
+    function computePossibleOptions(rows, cur){
+      let pool=[...rows];
+      if(cur.year) pool=pool.filter(r=> String(r.year||"")==String(cur.year));
+
+      const mentorsGiven = new Set(pool.filter(r=>{
+        const okC = cur.cohort? String(r.mentor_cohort||"")===String(cur.cohort) : true;
+        const okK = cur.kase? r.case_name===cur.kase : true;
+        return okC && okK;
+      }).map(r=>r.mentor_name));
+
+      const casesGiven = new Set(pool.filter(r=>{
+        const okC = cur.cohort? String(r.mentor_cohort||"")===String(cur.cohort) : true;
+        const okM = cur.mentor? r.mentor_name===cur.mentor : true;
+        return okC && okM;
+      }).map(r=>r.case_name));
+
+      const cohortsGiven = new Set(pool.filter(r=>{
+        const okM = cur.mentor? r.mentor_name===cur.mentor : true;
+        const okK = cur.kase? r.case_name===cur.kase : true;
+        return okM && okK;
+      }).map(r=>String(r.mentor_cohort||"")).filter(Boolean));
+
+      const years = [...new Set(rows.map(r=>String(r.year||"")).filter(Boolean))].sort();
+      return {
+        years,
+        cohorts:[...cohortsGiven].sort(),
+        mentors:[...mentorsGiven].sort(),
+        cases:[...casesGiven].sort()
+      };
+    }
+
+    function buildFilters(isFirst=false){
+      if(!RAW) return;
+      const fY=$('#fYear'), fC=$('#fCohort'), fM=$('#fMentor'), fK=$('#fCase');
+      const keep={ year:isFirst? "":fY.value, cohort:isFirst? "":fC.value, mentor:isFirst? "":fM.value, kase:isFirst? "":fK.value };
+
+      const p0=computePossibleOptions(RAW, keep);
+      const fill=(sel,list,ph,fmt=(x)=>x)=>{ const prev=sel.value; sel.innerHTML=""; sel.appendChild(opt("",ph)); list.forEach(v=> sel.appendChild(opt(v,fmt(v)))); sel.value=list.includes(prev)?prev:""; };
+
+      fill(fY, p0.years, "ทุกปี");
+      const p1=computePossibleOptions(RAW, {year:fY.value, cohort:keep.cohort, mentor:keep.mentor, kase:keep.kase});
+      fill(fC, p1.cohorts, "ทุก Cohort",(v)=> v?`Cohort ${v}`:"");
+      const p2=computePossibleOptions(RAW, {year:fY.value, cohort:fC.value, mentor:keep.mentor, kase:keep.kase});
+      fill(fM, p2.mentors, "ทุก Mentor");
+      const p3=computePossibleOptions(RAW, {year:fY.value, cohort:fC.value, mentor:fM.value, kase:keep.kase});
+      fill(fK, p3.cases, "ทุกเคส");
+    }
+
+    function onAnyFilterChanged(){
+      buildFilters(false);
+      renderOverview();
+      buildMentorsPage();
+    }
+
+    // ================== CORE CALC ==================
+    function filterRows(rows, filters){
+      let out=[...rows];
+      if(filters.year)   out=out.filter(r=>String(r.year||"")==String(filters.year));
+      if(filters.cohort) out=out.filter(r=>String(r.mentor_cohort||"")==String(filters.cohort));
+      if(filters.mentor) out=out.filter(r=>r.mentor_name===filters.mentor);
+      if(filters.kase)   out=out.filter(r=>r.case_name===filters.kase);
+      if(filters.onlyCompleted){
+        const have4=new Set();
+        const map=new Map();
+        out.forEach(r=>{
+          const k=r.mentor_name+"|"+r.case_name;
+          if(!map.has(k)) map.set(k,new Set());
+          map.get(k).add(+r.month_index);
+        });
+        map.forEach((set,k)=>{ if([1,2,3,4].every(i=>set.has(i))) have4.add(k); });
+        out=out.filter(r=>have4.has(r.mentor_name+"|"+r.case_name));
+      }
+      return out;
+    }
+
+    function calcOverviewExcelStyle(rows, deltaFromM1=false){
+      const agg={
+        debt:[0,0,0,0],
+        saving:[0,0,0,0],
+        dtiVals:[[],[],[],[]],
+        ratio:{in:0,out:0},
+        interestIn:[0,0,0,0],
+        interestOut:[0,0,0,0],
+      };
+      rows.forEach(r=>{
+        const m=+r.month_index; if(!(m>=1&&m<=4)) return;
+        const debt=num(r.in_debt_remain)+num(r.out_debt_remain);
+        const save=sumSavings(r);
+        const dti=dtiOf(r);
+        agg.debt[m-1]+=debt;
+        agg.saving[m-1]+=save;
+        if(isFinite(dti)) agg.dtiVals[m-1].push(dti);
+        agg.interestIn[m-1]+=num(r.in_interest_per_month);
+        agg.interestOut[m-1]+=num(r.out_interest_per_month);
+      });
+      if(deltaFromM1){
+        const d0=agg.debt[0], s0=agg.saving[0];
+        for(let i=0;i<4;i++){ agg.debt[i]-=d0; agg.saving[i]-=s0; }
+      }
+      const dtiAvg=agg.dtiVals.map(a=>a.length? a.reduce((x,y)=>x+y,0)/a.length : null);
+      const m4=rows.filter(r=>+r.month_index===4);
+      agg.ratio.in = m4.reduce((a,r)=>a+num(r.in_debt_remain),0);
+      agg.ratio.out= m4.reduce((a,r)=>a+num(r.out_debt_remain),0);
+      return {debt:agg.debt,saving:agg.saving,dti:dtiAvg,ratio:agg.ratio,interestIn:agg.interestIn,interestOut:agg.interestOut};
+    }
+
+    function computeCaseMetrics(rows){
+      const byM=new Map(rows.map(r=>[+r.month_index,r]));
+      const m1=byM.get(1), m2=byM.get(2), m3=byM.get(3), m4=byM.get(4);
+      const existing=[...byM.keys()].sort((a,b)=>a-b);
+      const lastIdx=existing.length?existing[existing.length-1]:1;
+      const last=byM.get(lastIdx)||m1;
+      const completed=!!(m1&&m2&&m3&&m4);
+
+      let debtReduced=0, saveIncrease=0, dtiDrop=null, intSaved=0;
+      if(m1&&m4){
+        const debt1=num(m1.in_debt_remain)+num(m1.out_debt_remain);
+        const debt4=num(m4.in_debt_remain)+num(m4.out_debt_remain);
+        debtReduced=Math.max(0, debt1-debt4);
+        saveIncrease=Math.max(0,(sumSavings(m4)||0)-(sumSavings(m1)||0));
+        const d1=dtiOf(m1), d4=dtiOf(m4); dtiDrop=(isFinite(d1)&&isFinite(d4))?Math.max(0,d1-d4):null;
+        const i1=num(m1.in_interest_per_month)+num(m1.out_interest_per_month);
+        intSaved=[m2,m3,m4].reduce((a,mi)=>a+(mi?Math.max(0, i1-(num(mi.in_interest_per_month)+num(mi.out_interest_per_month))):0),0);
+      }
+      const debt1_i=num(m1?.in_debt_remain)+num(m1?.out_debt_remain);
+      const debtL_i=num(last?.in_debt_remain)+num(last?.out_debt_remain);
+      const d1_i=dtiOf(m1), dL_i=dtiOf(last);
+      const saveIncI=Math.max(0,(sumSavings(last)||0)-(sumSavings(m1)||0));
+      let intSavedI=0; const i1in=num(m1?.in_interest_per_month), i1out=num(m1?.out_interest_per_month);
+      for(let i=2;i<=lastIdx;i++){ const mi=byM.get(i); if(mi) intSavedI+=Math.max(0,(i1in+i1out)-(num(mi.in_interest_per_month)+num(mi.out_interest_per_month))); }
+      const interim={lastMonthIndex:lastIdx,debtReduced:Math.max(0, debt1_i-debtL_i),saveIncrease:saveIncI,dtiDrop:(isFinite(d1_i)&&isFinite(dL_i))?Math.max(0,d1_i-dL_i):null,intSaved:intSavedI};
+      return {completed,debtReduced,saveIncrease,dtiDrop,intSaved,interim,m1,m2,m3,m4};
+    }
+
+    // ================== OVERVIEW ==================
+    function renderOverview(){
+      if(!RAW) return;
+      const filters=getFilters();
+      const rows=filterRows(RAW, filters);
+      renderKPIs(rows);
+      renderOverviewCharts(rows, filters.deltaFromM1);
+    }
+
+    function renderKPIs(rows){
+      const wrap=$('#kpiWrap'); wrap.innerHTML="";
+      if(!rows.length) return;
+      const byCase=new Map(); rows.forEach(r=>{const k=r.mentor_name+"|"+r.case_name; if(!byCase.has(k)) byCase.set(k,[]); byCase.get(k).push(r);});
+      let total=byCase.size, completed=0, debt=0, save=0, dtiSum=0, dtiCnt=0, interest=0;
+      byCase.forEach(arr=>{
+        const m=computeCaseMetrics(arr);
+        if(m.completed) completed++;
+        debt += m.completed?m.debtReduced:m.interim.debtReduced;
+        save += m.completed?m.saveIncrease:m.interim.saveIncrease;
+        interest += m.completed?m.intSaved:m.interim.intSaved;
+        const drop=m.completed?m.dtiDrop:m.interim.dtiDrop;
+        if(drop!=null){ dtiSum+=drop; dtiCnt++; }
+      });
+      const node=(t,v)=>`<div class="kpi"><div class="t">${t}</div><div class="v">${v}</div></div>`;
+      wrap.innerHTML=[
+        node("จำนวนเคส (หลังกรอง)", total),
+        node("ครบ 4 เดือน", completed),
+        node("หนี้ลดลงรวม (M1→ล่าสุด)", fmtBaht(debt)),
+        node("ออมเพิ่มขึ้นรวม (M1→ล่าสุด)", fmtBaht(save)),
+        node("DTI ลดลง (เฉลี่ย)", dtiCnt?(dtiSum/dtiCnt).toFixed(1)+"%":"-"),
+        node("ดอกเบี้ยประหยัดรวม", fmtBaht(interest))
+      ].join("");
+    }
+
+    function renderOverviewCharts(rows, deltaFromM1){
+      const calc=calcOverviewExcelStyle(rows, deltaFromM1);
+
+      makeChart("debtTrend","line",{
+        labels:["M1","M2","M3","M4"],
+        datasets:[{label:"ยอดหนี้รวม",data:calc.debt,borderColor:"#60a5fa",backgroundColor:"rgba(96,165,250,.15)",fill:true,tension:.35,pointRadius:3}]
+      },{scales:{y:{beginAtZero:true,ticks:{callback:tickMB}}}});
+
+      makeChart("dtiBar","bar",{
+        labels:["M1","M2","M3","M4"],
+        datasets:[{label:"DTI (%)",data:calc.dti,backgroundColor:"#10b981"}]
+      },{scales:{y:{beginAtZero:true,suggestedMax:100}}});
+
+      makeChart("savingTrend","line",{
+        labels:["M1","M2","M3","M4"],
+        datasets:[{label:"เงินออมรวม/เดือน",data:calc.saving,borderColor:"#a78bfa",backgroundColor:"rgba(167,139,250,.18)",fill:true,tension:.35,pointRadius:3}]
+      },{scales:{y:{beginAtZero:true,ticks:{callback:tickMB}}}});
+
+      const total=calc.ratio.in+calc.ratio.out||1;
+      makeChart("ratioDonut","doughnut",{
+        labels:["ในระบบ","นอกระบบ"],
+        datasets:[{data:[calc.ratio.in,calc.ratio.out],backgroundColor:["#06b6d4","#f59e0b"],hoverOffset:6}]
+      },{plugins:{tooltip:{callbacks:{label:(ctx)=>{const v=ctx.parsed; const pct=(v/total*100); return `${ctx.label}: ${fmtBaht(v)} (${pct.toFixed(1)}%)`;}}}}});
+
+      // NEW: Interest Trend
+      makeChart("interestTrend","line",{
+        labels:["M1","M2","M3","M4"],
+        datasets:[
+          {label:"ดอกเบี้ยในระบบ/เดือน", data:calc.interestIn,  borderColor:"#22d3ee", backgroundColor:"rgba(34,211,238,.15)", fill:true, tension:.35, pointRadius:3},
+          {label:"ดอกเบี้ยนอกระบบ/เดือน", data:calc.interestOut, borderColor:"#f59e0b", backgroundColor:"rgba(245,158,11,.12)", fill:true, tension:.35, pointRadius:3}
+        ]
+      },{scales:{y:{beginAtZero:true,ticks:{callback:tickMB}}}});
+    }
+
+    // ===== Case detail (Overview) =====
+    $('#closeCase').onclick=()=>{ $('#casePanel').classList.add('hidden'); destroy('caseDTIChart'); destroy('caseDebtChart'); destroy('caseSavingChart'); };
+    function openCasePanel(mentorName, caseName){
+      const rows=filterRows(RAW, getFilters()).filter(r=>r.mentor_name===mentorName && r.case_name===caseName);
+      const m=computeCaseMetrics(rows);
+      $('#caseTitle').textContent=`สรุปเคส: ${caseName} (${mentorName})`;
+      const v=(t,val,badge)=>`<div class="kpi"><div class="t">${t}${badge?` <span class="text-[10px] px-2 py-0.5 rounded-full bg-white/5">${badge}</span>`:""}</div><div class="v">${val}</div></div>`;
+      const latestIdx = m.completed?4 : m.interim.lastMonthIndex;
+      $('#caseKPIGrid').innerHTML=[
+        v("สถานะ", m.completed?"ครบ 4 เดือน":"ยังไม่ครบ"),
+        v("มูลหนี้ลดลง", fmtBaht(m.completed?m.debtReduced:m.interim.debtReduced), m.completed?"M1→M4":`M1→M${latestIdx}`),
+        v("ออมเพิ่มขึ้น", fmtBaht(m.completed?m.saveIncrease:m.interim.saveIncrease), m.completed?"M1→M4":`M1→M${latestIdx}`),
+        v("DTI ลดลง", (m.completed?m.dtiDrop:m.interim.dtiDrop)!=null?(m.completed?m.dtiDrop:m.interim.dtiDrop).toFixed(1)+"%":"-", m.completed?"M1→M4":`M1→M${latestIdx}`),
+        v("ดอกเบี้ยประหยัด", fmtBaht(m.completed?m.intSaved:m.interim.intSaved), m.completed?"M1→M4":`M1→M${latestIdx}`),
+        v("รายได้ล่าสุด", fmtBaht((m.completed?m.m4:m['m'+latestIdx])?.income_total||0))
+      ].join("");
+      $('#casePanel').classList.remove('hidden');
+
+      const lbl=["เดือน 1","เดือน 2","เดือน 3","เดือน 4"];
+      const mBy = [m.m1,m.m2,m.m3,m.m4];
+      makeChart("caseDTIChart","line",{labels:lbl,datasets:[{label:"DTI (%)",data:mBy.map(x=>x?dtiOf(x):null),borderColor:"#0ea5e9",backgroundColor:"rgba(14,165,233,.15)",fill:true,tension:.35}]},{scales:{y:{beginAtZero:true,suggestedMax:100}}});
+      makeChart("caseDebtChart","bar",{labels:lbl,datasets:[{label:"หนี้คงเหลือรวม",data:mBy.map(x=>x?num(x.in_debt_remain)+num(x.out_debt_remain):0),backgroundColor:"#4f46e5"}]},{scales:{y:{beginAtZero:true,ticks:{callback:tickMB}}}});
+      makeChart("caseSavingChart","line",{labels:lbl,datasets:[{label:"เงินออมรวมต่อเดือน",data:mBy.map(x=>x?sumSavings(x):0),borderColor:"#a78bfa",backgroundColor:"rgba(167,139,250,.18)",fill:true,tension:.35}]},{scales:{y:{beginAtZero:true,ticks:{callback:tickMB}}}});
+    }
+
+    // ================== MENTORS PAGE ==================
+    function buildMentorsPage(){
+      const listEl=$('#mentorList'), emptyEl=$('#mentorEmpty'), title=$('#mentorTitle'), table=$('#caseTable'), exportBtn=$('#exportCases');
+      listEl.innerHTML=""; table.innerHTML=""; exportBtn.disabled=true; title.textContent="เลือก Mentor ทางซ้าย";
+      $('#mentorCasePanel').classList.add('hidden');
+
+      const rows=filterRows(RAW, getFilters());
+      if(!rows.length){ emptyEl.classList.remove('hidden'); return; } else emptyEl.classList.add('hidden');
+
+      const byMentorKey=new Map();
+      rows.forEach(r=>{ const k=(r.mentor_name||"")+"|"+(r.mentor_cohort||""); if(!byMentorKey.has(k)) byMentorKey.set(k,[]); byMentorKey.get(k).push(r); });
+
+      const search=$('#mentorSearch');
+      const renderList=()=>{
+        const q=(search.value||"").toLowerCase(); listEl.innerHTML="";
+        [...byMentorKey.keys()].sort().forEach(key=>{
+          const [name,cohort]=key.split("|"); if(q && !name.toLowerCase().includes(q)) return;
+          const rowsOf=byMentorKey.get(key);
+          const byCase=new Map(); rowsOf.forEach(r=>{const k=r.case_name; if(!byCase.has(k)) byCase.set(k,[]); byCase.get(k).push(r);});
+          const dtiLatest=[], saveInc=[];
+          byCase.forEach(arr=>{ const m=computeCaseMetrics(arr); saveInc.push(m.completed?m.saveIncrease:m.interim.saveIncrease); const last=[4,3,2,1].map(i=>arr.find(x=>+x.month_index===i)).find(Boolean); if(last && num(last.income_total)>0){ const d=dtiOf(last); if(isFinite(d)) dtiLatest.push(d); }});
+          const avgDTI=dtiLatest.length?(dtiLatest.reduce((a,v)=>a+v,0)/dtiLatest.length).toFixed(1):"-";
+          const avgSavingIncNum=saveInc.length?Math.round(saveInc.reduce((a,v)=>a+v,0)/saveInc.length):0;
+          const li=document.createElement('li');
+          li.className="border border-white/10 rounded-lg p-3 hover:bg-white/5 cursor-pointer";
+          li.innerHTML=`<div class="font-semibold">${name}${cohort?` <span class="text-xs text-sky-200/70">(รุ่น ${cohort})</span>`:""}</div><div class="text-xs text-sky-200/70">เคส: ${byCase.size} • ออมเพิ่มขึ้นเฉลี่ย: ${fmtBaht(avgSavingIncNum)} • DTI เฉลี่ย: ${avgDTI}%</div>`;
+          li.onclick=()=>{ CURRENT_MENTOR_KEY=key; renderCasesTable(); };
+          listEl.appendChild(li);
+        });
+      };
+      search.oninput=renderList; renderList();
+      exportBtn.onclick=exportCSV;
+
+      function renderCasesTable(){
+        table.innerHTML=""; exportBtn.disabled=true;
+        if(!CURRENT_MENTOR_KEY){ title.textContent="เลือก Mentor ทางซ้าย"; return; }
+        const [name,cohort]=CURRENT_MENTOR_KEY.split("|"); title.textContent=`${name}${cohort?` (รุ่น ${cohort})`:""} — รายการเคส`;
+        const rowsOf=byMentorKey.get(CURRENT_MENTOR_KEY)||[];
+        const byCase=new Map(); rowsOf.forEach(r=>{const k=r.case_name; if(!byCase.has(k)) byCase.set(k,[]); byCase.get(k).push(r);});
+        const csv=[];
+        byCase.forEach((arr,caseName)=>{
+          const m=computeCaseMetrics(arr);
+          const badge = m.completed ? "" : ` <span class="text-[10px] text-white/70">(Δ M1→M${m.interim.lastMonthIndex})</span>`;
+          const debtCell = fmtBaht(m.completed?m.debtReduced:m.interim.debtReduced) + badge;
+          const saveCell = fmtBaht(m.completed?m.saveIncrease:m.interim.saveIncrease) + badge;
+          const dtiVal   = (m.completed?m.dtiDrop:m.interim.dtiDrop);
+          const dtiCell  = dtiVal!=null? dtiVal.toFixed(1)+'%'+badge : '-';
+          const intCell  = fmtBaht(m.completed?m.intSaved:m.interim.intSaved) + (m.completed?"":badge);
+          const tr=document.createElement("tr");
+          tr.innerHTML=`<td class="p-2">${caseName}</td><td class="p-2 ${m.completed?'text-green-400':'text-sky-200/70'}">${m.completed?'ครบ 4 เดือน':'ยังไม่ครบ'}</td><td class="p-2 text-right">${debtCell}</td><td class="p-2 text-right">${saveCell}</td><td class="p-2 text-right">${dtiCell}</td><td class="p-2 text-right">${intCell}</td><td class="p-2 text-right"><button class="btn btn-contrast text-sm">ดู</button></td>`;
+          tr.querySelector('button').onclick=()=>{ openMentorCasePanel(name, caseName); };
+          table.appendChild(tr);
+          csv.push({mentor:name,cohort,case:caseName,status:m.completed?'complete':'in-progress',debt_reduced:m.completed?m.debtReduced:m.interim.debtReduced,saving_increase:m.completed?m.saveIncrease:m.interim.saveIncrease,dti_drop:(m.completed?m.dtiDrop:m.interim.dtiDrop),interest_saved:m.completed?m.intSaved:m.interim.intSaved});
+        });
+        exportBtn.disabled=csv.length===0; exportBtn.dataset.csv=JSON.stringify(csv);
+      }
+      function exportCSV(){
+        const data=JSON.parse(this.dataset.csv||"[]"); if(!data.length) return;
+        const headers=["mentor","cohort","case","status","debt_reduced","saving_increase","dti_drop","interest_saved"];
+        const rows=[headers.join(",")].concat(data.map(o=>headers.map(h=>String(o[h]??"").replace(/,/g,"")).join(",")));
+        const blob=new Blob([rows.join("\n")],{type:"text/csv;charset=utf-8;"}); const url=URL.createObjectURL(blob);
+        const a=document.createElement("a"); a.href=url; a.download="cases.csv"; a.click(); URL.revokeObjectURL(url);
+      }
+    }
+
+    // แสดงรายละเอียดเคสในแท็บ Mentors เอง
+    $('#closeMentorCase').onclick=()=>{ $('#mentorCasePanel').classList.add('hidden'); ['mCaseDTI','mCaseDebt','mCaseSaving'].forEach(destroy); };
+    function openMentorCasePanel(mentorName, caseName){
+      const rows=filterRows(RAW, getFilters()).filter(r=>r.mentor_name===mentorName && r.case_name===caseName);
+      const m=computeCaseMetrics(rows);
+      $('#mentorCaseTitle').textContent=`สรุปเคส: ${caseName} (${mentorName})`;
+      const v=(t,val,badge)=>`<div class="kpi"><div class="t">${t}${badge?` <span class="text-[10px] px-2 py-0.5 rounded-full bg-white/5">${badge}</span>`:""}</div><div class="v">${val}</div></div>`;
+      const latestIdx = m.completed?4 : m.interim.lastMonthIndex;
+      $('#mentorCaseKPIGrid').innerHTML=[
+        v("สถานะ", m.completed?"ครบ 4 เดือน":"ยังไม่ครบ"),
+        v("มูลหนี้ลดลง", fmtBaht(m.completed?m.debtReduced:m.interim.debtReduced), m.completed?"M1→M4":`M1→M${latestIdx}`),
+        v("ออมเพิ่มขึ้น", fmtBaht(m.completed?m.saveIncrease:m.interim.saveIncrease), m.completed?"M1→M4":`M1→M${latestIdx}`),
+        v("DTI ลดลง", (m.completed?m.dtiDrop:m.interim.dtiDrop)!=null?(m.completed?m.dtiDrop:m.interim.dtiDrop).toFixed(1)+"%":"-", m.completed?"M1→M4":`M1→M${latestIdx}`),
+        v("ดอกเบี้ยประหยัด", fmtBaht(m.completed?m.intSaved:m.interim.intSaved), m.completed?"M1→M4":`M1→M${latestIdx}`),
+        v("รายได้ล่าสุด", fmtBaht((m.completed?m.m4:m['m'+latestIdx])?.income_total||0))
+      ].join("");
+      $('#mentorCasePanel').classList.remove('hidden');
+
+      const lbl=["เดือน 1","เดือน 2","เดือน 3","เดือน 4"];
+      const mBy=[m.m1,m.m2,m.m3,m.m4];
+      makeChart("mCaseDTI","line",{labels:lbl,datasets:[{label:"DTI (%)",data:mBy.map(x=>x?dtiOf(x):null),borderColor:"#0ea5e9",backgroundColor:"rgba(14,165,233,.15)",fill:true,tension:.35}]},{scales:{y:{beginAtZero:true,suggestedMax:100}}});
+      makeChart("mCaseDebt","bar",{labels:lbl,datasets:[{label:"หนี้คงเหลือรวม",data:mBy.map(x=>x?num(x.in_debt_remain)+num(x.out_debt_remain):0),backgroundColor:"#4f46e5"}]},{scales:{y:{beginAtZero:true,ticks:{callback:tickMB}}}});
+      makeChart("mCaseSaving","line",{labels:lbl,datasets:[{label:"เงินออมรวมต่อเดือน",data:mBy.map(x=>x?sumSavings(x):0),borderColor:"#a78bfa",backgroundColor:"rgba(167,139,250,.18)",fill:true,tension:.35}]},{scales:{y:{beginAtZero:true,ticks:{callback:tickMB}}}});
+    }
+
+    // ================== EVENTS ==================
+    ['#fYear','#fCohort','#fMentor','#fCase','#fOnlyCompleted','#fDeltaFromM1'].forEach(sel=>{
+      document.addEventListener('change',e=>{ if(e.target.matches(sel)) onAnyFilterChanged(); });
+    });
+    $('#btnRefresh').onclick=()=>loadAll();
+    $('#clearFilters').onclick=()=>{ $('#fYear').value=''; $('#fCohort').value=''; $('#fMentor').value=''; $('#fCase').value=''; $('#fOnlyCompleted').checked=true; $('#fDeltaFromM1').checked=false; buildFilters(false); renderOverview(); buildMentorsPage(); };
+    $('#autoRefresh').onchange=e=>{ if(e.target.checked){ autoTimer=setInterval(loadAll,5*60*1000); } else { clearInterval(autoTimer); autoTimer=null; } };
+
+    // ================== INIT ==================
+    initTabs();
+    loadAll();
+  </script>
+</body>
+</html>
